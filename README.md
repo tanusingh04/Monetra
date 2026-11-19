@@ -81,53 +81,51 @@ Monetra moves money between wallets **correctly, exactly once, and provably**, e
 
 ### High-level view
 
-```mermaid
-flowchart TB
-    subgraph Clients["Clients"]
-        Web["Web / REST clients"]
-        Android["Android SDK<br/>payflow-client-android<br/>(offline wallet, Merkle verifier)"]
-    end
+```text
+                     ┌──────────────────────────────────────────┐
+                     │                 CLIENTS                  │
+                     │  Web / REST clients   Android SDK        │
+                     │                       (offline wallet,   │
+                     │                        Merkle verifier)  │
+                     └───────────────────┬──────────────────────┘
+                                         │ HTTPS + JWT
+                                         ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                           APPLICATION TIER                             │
+│                                                                        │
+│  ┌──────────────────────────────┐      ┌────────────────────────────┐  │
+│  │ payflow-api  (:8080)         │      │ payflow-worker  (:8081)    │  │
+│  │ Auth · Payments · Wallets    │      │ Kafka consumers            │  │
+│  │ Offline settlement           │      │ Dedup · Retry · DLQ        │  │
+│  │ Ledger proofs                │      │ Fraud alert routing        │  │
+│  │ Reconciliation · Outbox      │      │                            │  │
+│  └───────┬──────────┬───────────┘      └──────▲──────────┬──────────┘  │
+│          │          │                         │          │             │
+│          │          │     ┌───────────────────┴───────┐  │             │
+│          │          │     │ payflow-core (shared lib) │  │             │
+│          │          │     │ Domain · Repos · Events   │  │             │
+│          │          │     │ Merkle (RFC 6962) · Logs  │  │             │
+│          │          │     └───────────────────────────┘  │             │
+└──────────┼──────────┼─────────────────────────┼──────────┼─────────────┘
+           │          │                         │          │
+           │          │ outbox poller           │ consume  │ read/write
+           │          │ (SKIP LOCKED)           │          │
+           │          ▼                         │          │
+           │   ┌───────────────────────────────────┐       │
+           │   │      APACHE KAFKA 3.7 (KRaft)     │       │
+           │   │  payment-events   payment-retry   │       │
+           │   │  payment-dlq      fraud-alerts    │       │
+           │   └───────────────────────────────────┘       │
+           │                                               │
+           ▼                                               ▼
+┌─────────────────────────┐                  ┌───────────────────────────┐
+│  Redis 7                │                  │  PostgreSQL 16            │
+│  Balance cache          │                  │  Ledger · Wallets         │
+│  (cache-aside reads)    │                  │  Payments · Outbox        │
+└─────────────────────────┘                  │  Offline tables           │
+                                             └───────────────────────────┘
 
-    subgraph App["Application Tier"]
-        API["payflow-api<br/>Spring Boot REST API<br/>Auth · Payments · Wallets<br/>Offline Settlement · Ledger Proofs<br/>Reconciliation · Notifications"]
-        Worker["payflow-worker<br/>Kafka consumers<br/>Dedup · Retry · DLQ<br/>Fraud alert routing"]
-        Core["payflow-core<br/>Shared domain, repositories,<br/>events, Merkle library, logging"]
-    end
-
-    subgraph Data["Data Tier"]
-        PG[("PostgreSQL 16<br/>Ledger · Wallets · Payments<br/>Outbox · Offline tables")]
-        Redis[("Redis 7<br/>Balance cache")]
-    end
-
-    subgraph Bus["Apache Kafka 3.7 (KRaft)"]
-        T1["payment-events"]
-        T2["payment-retry"]
-        T3["payment-dlq"]
-        T4["fraud-alerts"]
-    end
-
-    subgraph Obs["Observability"]
-        Prom["Prometheus"]
-        Graf["Grafana"]
-    end
-
-    Web -->|"HTTPS + JWT"| API
-    Android -->|"HTTPS + JWT<br/>allowance · settle · proofs"| API
-    API --> PG
-    API <-->|"cache-aside reads"| Redis
-    API -->|"Outbox poller<br/>(SKIP LOCKED)"| T1
-    API -->|"Outbox poller"| T4
-    T1 --> Worker
-    T2 --> Worker
-    T4 --> Worker
-    Worker -->|"on failure"| T2
-    Worker -->|"retries exhausted"| T3
-    Worker --> PG
-    API -. depends on .-> Core
-    Worker -. depends on .-> Core
-    API -->|"/actuator/prometheus"| Prom
-    Worker -->|"/actuator/prometheus"| Prom
-    Prom --> Graf
+        api + worker ──/actuator/prometheus──▶ Prometheus ──▶ Grafana
 ```
 
 ### Architectural style
@@ -247,17 +245,17 @@ Monetra lets two phones exchange money with **no internet connection at all**: i
 
 ```mermaid
 flowchart LR
-    subgraph P1["Phase 1 · Online: allowance"]
-        A1["User requests allowance<br/>(e.g. ₹2,000 for 24h)"] --> A2["API reserves funds<br/>balance stays, reserved_balance += 2,000"]
+    subgraph P1["Phase 1 - Online: allowance"]
+        A1["User requests allowance<br/>(e.g. Rs 2,000 for 24h)"] --> A2["API reserves funds<br/>balance stays, reserved_balance += 2,000"]
         A2 --> A3["API signs Allowance Certificate<br/>(ECDSA P-256)"]
         A3 --> A4["Stored in Android Keystore / TEE"]
     end
-    subgraph P2["Phase 2 · Offline: P2P payment (NFC / BLE)"]
+    subgraph P2["Phase 2 - Offline: P2P payment (NFC / BLE)"]
         B1["Receiver: payment request + 128-bit nonce"] --> B2["Sender validates expiry, per-tx limit,<br/>remaining allowance, counter+1"]
         B2 --> B3["Sender signs receipt in hardware keystore"]
         B3 --> B4["Receiver verifies CA cert + signature,<br/>stores receipt encrypted"]
     end
-    subgraph P3["Phase 3 · Online: settlement"]
+    subgraph P3["Phase 3 - Online: settlement"]
         C1["POST /api/offline/sync/settle"] --> C2["Verify signatures, counters, expiry,<br/>idempotency"]
         C2 --> C3["Atomic double-entry settlement<br/>from reserved funds"]
         C3 --> C4["Outbox event, reputation update,<br/>expiry releases unspent funds"]
@@ -296,11 +294,11 @@ sequenceDiagram
     participant B as Settlement Engine
     participant DB as PostgreSQL
 
-    Cheat->>M1: Receipt R1 (counter 1, ₹400)
+    Cheat->>M1: Receipt R1 (counter 1, Rs 400)
     Note over Cheat: Restores device snapshot (counter rewound)
-    Cheat->>M2: Receipt R2 (counter 1, ₹300)
+    Cheat->>M2: Receipt R2 (counter 1, Rs 300)
     M1->>B: settle(R1)
-    B->>DB: Settle from reserve → M1 credited
+    B->>DB: Settle from reserve, M1 credited
     M2->>B: settle(R2)
     B->>B: Counter collision detected
     B->>B: Verify BOTH signatures against enrolled public key
@@ -308,9 +306,9 @@ sequenceDiagram
     B->>DB: Revoke allowance + device (EQUIVOCATION_FRAUD)
     B->>DB: Freeze remaining reserve (no auto-release)
     alt R2 covered by remaining reserve
-        B->>DB: Settle R2 as PROTECTED_BY_RESERVE → M2 credited
+        B->>DB: Settle R2 as PROTECTED_BY_RESERVE, M2 credited
     else Not covered
-        B-->>M2: Rejected: FRAUD_PROOF_DETECTED ... UNCOVERED_BY_RESERVE
+        B-->>M2: Rejected - FRAUD_PROOF_DETECTED, UNCOVERED_BY_RESERVE
     end
 ```
 
@@ -359,12 +357,23 @@ A relational database can enforce constraints, but it cannot **prove** to an out
 - **Immutable by trigger:** batches and leaves reject `UPDATE`/`DELETE`
 - **Zero-trust clients:** the Android SDK ships a framework-free `MerkleVerifier`, so a phone can verify its own transaction inclusion against public roots
 
-```mermaid
-flowchart TD
-    Root["Root hash<br/>(0x01 node)"] --> N01["Node 0-1"]
-    Root --> L2["Leaf 2<br/>(0x00)"]
-    N01 --> L0["Leaf 0<br/>(0x00)"]
-    N01 --> L1["Leaf 1<br/>(0x00)<br/>← sibling in proof for Leaf 0"]
+```text
+                    ┌──────────────────────┐
+                    │  Root hash (0x01)    │
+                    └─────────┬────────────┘
+                 ┌────────────┴─────────────┐
+                 ▼                          ▼
+        ┌─────────────────┐         ┌───────────────┐
+        │ Node 0-1 (0x01) │         │ Leaf 2 (0x00) │
+        └───────┬─────────┘         └───────────────┘
+          ┌─────┴──────┐
+          ▼            ▼
+   ┌─────────────┐ ┌─────────────┐
+   │ Leaf 0      │ │ Leaf 1      │
+   │ (0x00)      │ │ (0x00)      │
+   └─────────────┘ └─────────────┘
+                     ▲
+                     └── sibling in the proof for Leaf 0
 ```
 
 **What it proves:** inclusion, immutability, ordering and non-omission, and timeline continuity.
@@ -497,30 +506,32 @@ Guide: [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md).
 
 ### AWS (Terraform in `deploy/aws/terraform/`)
 
-```mermaid
-flowchart TD
-    Users([Users & Mobile Clients]) --> ALB["Application Load Balancer<br/>public subnets"]
-    subgraph VPC["VPC (2 AZs)"]
-        subgraph Private["Private subnets: ECS Fargate"]
-            API["payflow-api task"]
-            WK["payflow-worker task"]
-        end
-        subgraph DB["Isolated data subnets"]
-            RDS[("RDS PostgreSQL 16")]
-            EC[("ElastiCache Redis 7")]
-            MSK["Kafka (MSK / Confluent)"]
-        end
-    end
-    ALB -->|"/actuator/health"| API
-    API --> RDS
-    API --> EC
-    API --> MSK
-    MSK --> WK
-    WK --> RDS
-    SM["Secrets Manager"] -.-> API
-    SM -.-> WK
-    CW["CloudWatch Logs"] -.-> API
-    ECR["ECR"] -.-> Private
+```text
+                  Users & Mobile Clients
+                           │
+                           ▼
+             ┌───────────────────────────┐
+             │ Application Load Balancer │   (public subnets)
+             └─────────────┬─────────────┘
+                           │  /actuator/health
+┌──────────────────────────┼───────────────────────────────────────┐
+│ VPC (2 AZs)              ▼                                       │
+│   ┌────────────────────────────────────────────┐                 │
+│   │ Private subnets: ECS Fargate               │                 │
+│   │   payflow-api task    payflow-worker task  │                 │
+│   └──────┬───────────────────────┬─────────────┘                 │
+│          │                       │                               │
+│   ┌──────▼───────────────────────▼─────────────┐                 │
+│   │ Isolated data subnets                      │                 │
+│   │   RDS PostgreSQL 16                        │                 │
+│   │   ElastiCache Redis 7                      │                 │
+│   │   Kafka (MSK / Confluent)                  │                 │
+│   └────────────────────────────────────────────┘                 │
+└──────────────────────────────────────────────────────────────────┘
+
+   Secrets Manager ··> api / worker    (credentials at task start)
+   CloudWatch Logs ··> api / worker    (logs)
+   ECR             ··> ECS tasks       (images)
 ```
 
 - **IaC:** VPC, security groups, ALB, ECS, RDS, ElastiCache, Secrets Manager, and CloudWatch, each in its own `.tf` file, with a `portfolio_mode` switch for low-cost deployments
