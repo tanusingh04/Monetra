@@ -1,0 +1,75 @@
+server:
+  port: 8081
+  shutdown: graceful
+
+spring:
+  application:
+    name: payflow-worker
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/payflow_db}
+    username: ${SPRING_DATASOURCE_USERNAME:payflow_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:payflow_pass}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: payflow-worker-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: manual_immediate
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+app:
+  kafka:
+    topics:
+      payment-events: payment-events
+      payment-retry: payment-retry
+      payment-dlq: payment-dlq
+      fraud-alerts: fraud-alerts
+  alerts:
+    webhook:
+      enabled: false
+      url: https://hooks.slack.com/services/mock
+      secret: "payflow-alert-webhook-secret-key-32chars"
+      timeout-sec: 5
+      max-retries: 3
+  outbox:
+    polling-rate-ms: 2000
+    batch-size: 50
+    max-retries: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}

@@ -1,0 +1,24 @@
+# Build stage
+FROM maven:3.9.6-eclipse-temurin-21-alpine AS build
+WORKDIR /app
+COPY pom.xml .
+COPY payflow-core/pom.xml payflow-core/
+COPY payflow-api/pom.xml payflow-api/
+COPY payflow-worker/pom.xml payflow-worker/
+RUN mvn -B -e dependency:go-offline || true
+
+COPY payflow-core/src payflow-core/src
+COPY payflow-api/src payflow-api/src
+COPY payflow-worker/src payflow-worker/src
+
+# Package payflow-worker
+RUN mvn clean package -pl payflow-worker -am -DskipTests
+
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+RUN addgroup -S payflow && adduser -S payflow -G payflow
+USER payflow
+COPY --from=build /app/payflow-worker/target/payflow-worker-*.jar app.jar
+EXPOSE 8081
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75.0", "-jar", "app.jar"]

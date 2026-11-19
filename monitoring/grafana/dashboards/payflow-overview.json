@@ -1,0 +1,323 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "System Overview & Key Performance Indicators",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "title": "Total Payment Requests",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(payflow_payments_total)",
+          "legendFormat": "Requests"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "mappings": [],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Payment Success Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [
+        {
+          "expr": "(sum(payflow_payments_success_total) / sum(payflow_payments_total)) * 100",
+          "legendFormat": "Success %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 95 },
+              { "color": "green", "value": 99 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Outbox Pending Queue",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(payflow_outbox_pending_count)",
+          "legendFormat": "Pending Events"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "red", "value": 200 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Redis Cache Hit Ratio",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [
+        {
+          "expr": "(sum(rate(payflow_redis_cache_hits_total[1m])) / (sum(rate(payflow_redis_cache_hits_total[1m])) + sum(rate(payflow_redis_cache_misses_total[1m])))) * 100",
+          "legendFormat": "Hit %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "orange", "value": null },
+              { "color": "yellow", "value": 60 },
+              { "color": "green", "value": 85 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "DB Pool Utilization",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "avg(payflow_database_pool_utilization) * 100",
+          "legendFormat": "Pool %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Kafka Consumer Lag",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(payflow_kafka_consumer_lag)",
+          "legendFormat": "Lag"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 20 },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "Payment Processing Engine",
+      "type": "row"
+    },
+    {
+      "id": 7,
+      "title": "Payment Throughput (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "sum(rate(payflow_payments_total[1m]))", "legendFormat": "Total Requests" },
+        { "expr": "sum(rate(payflow_payments_success_total[1m]))", "legendFormat": "Successful" },
+        { "expr": "sum(rate(payflow_payments_failure_total[1m]))", "legendFormat": "Failed" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Payment Latency (P50, P95, P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(payflow_payments_latency_seconds_bucket[1m])) by (le)) * 1000", "legendFormat": "P50 Latency (ms)" },
+        { "expr": "histogram_quantile(0.95, sum(rate(payflow_payments_latency_seconds_bucket[1m])) by (le)) * 1000", "legendFormat": "P95 Latency (ms)" },
+        { "expr": "histogram_quantile(0.99, sum(rate(payflow_payments_latency_seconds_bucket[1m])) by (le)) * 1000", "legendFormat": "P99 Latency (ms)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms" }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "Concurrency, Idempotency & Fault Tolerance",
+      "type": "row"
+    },
+    {
+      "id": 9,
+      "title": "Idempotency Conflicts & Insufficient Funds",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "targets": [
+        { "expr": "sum(rate(payflow_idempotency_conflicts_total[1m]))", "legendFormat": "Idempotency Conflicts / sec" },
+        { "expr": "sum(rate(payflow_payments_insufficient_balance_total[1m]))", "legendFormat": "Insufficient Balance / sec" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Transactional Outbox & Kafka Publishing Health",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "targets": [
+        { "expr": "sum(payflow_outbox_pending_count)", "legendFormat": "Pending Events (Queue Size)" },
+        { "expr": "sum(rate(payflow_outbox_publishing_failures_total[1m]))", "legendFormat": "Publishing Failures / sec" }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 103,
+      "title": "Infrastructure, Caching & Asynchronous Worker",
+      "type": "row"
+    },
+    {
+      "id": 11,
+      "title": "Redis Cache Operations (Hits vs Misses)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "sum(rate(payflow_redis_cache_hits_total[1m]))", "legendFormat": "Cache Hits / sec" },
+        { "expr": "sum(rate(payflow_redis_cache_misses_total[1m]))", "legendFormat": "Cache Misses / sec" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Event Worker Consumer Pipeline",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "expr": "sum(rate(payflow_worker_events_processed_total[1m]))", "legendFormat": "Processed / sec" },
+        { "expr": "sum(rate(payflow_worker_events_duplicates_total[1m]))", "legendFormat": "Duplicates Suppressed / sec" },
+        { "expr": "sum(rate(payflow_worker_events_retried_total[1m]))", "legendFormat": "Retried / sec" },
+        { "expr": "sum(rate(payflow_worker_events_dlq_total[1m]))", "legendFormat": "DLQ Routed / sec" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops" }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "id": 104,
+      "title": "Fraud & Alerts",
+      "type": "row"
+    },
+    {
+      "id": 13,
+      "title": "Offline Fraud Proofs Detected",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 33 },
+      "targets": [
+        { "expr": "sum(fraud_proofs_detected_total)", "legendFormat": "Fraud Proofs" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "title": "Fraud Alerts by Severity",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 33 },
+      "targets": [
+        { "expr": "sum by (severity) (rate(alerts_created_total[1m]))", "legendFormat": "{{severity}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "alerts/s" }
+      }
+    },
+    {
+      "id": 15,
+      "title": "Alert Delivery Failures",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 33 },
+      "targets": [
+        { "expr": "sum by (channel) (rate(alerts_delivery_failed_total[1m]))", "legendFormat": "{{channel}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "failures/s" }
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["payflow", "payments", "production", "metrics"],
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m"]
+  },
+  "timezone": "browser",
+  "title": "PayFlow :: Production Distributed Observability",
+  "uid": "payflow-production-overview",
+  "version": 1
+}

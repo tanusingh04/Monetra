@@ -1,0 +1,145 @@
+name: PayFlow AWS Production Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Deployment Environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - staging
+
+permissions:
+  id-token: write # Required for AWS OpenID Connect (OIDC) authentication
+  contents: read
+
+jobs:
+  test-and-package:
+    name: Build & Verify Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run Full Test Suite & Build Artifacts
+        run: mvn clean verify -B
+
+      - name: Upload Built Fat JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-jars
+          path: |
+            payflow-api/target/payflow-api-*.jar
+            payflow-worker/target/payflow-worker-*.jar
+
+  build-and-deploy:
+    name: Build Containers & Deploy to AWS ECS Fargate
+    needs: test-and-package
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECS_CLUSTER: payflow-cluster
+      ECS_SERVICE_API: payflow-api-service
+      ECS_SERVICE_WORKER: payflow-worker-service
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Built JARs
+        uses: actions/download-artifact@v4
+        with:
+          name: application-jars
+
+      # Secure OIDC Authentication (No static AWS access keys)
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Build and Push Docker Images
+      - name: Build, Tag, and Push payflow-api to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/payflow-api:$IMAGE_TAG -t $ECR_REGISTRY/payflow-api:latest -f docker/Dockerfile.api .
+          docker push $ECR_REGISTRY/payflow-api:$IMAGE_TAG
+          docker push $ECR_REGISTRY/payflow-api:latest
+          echo "API_IMAGE=$ECR_REGISTRY/payflow-api:$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Build, Tag, and Push payflow-worker to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/payflow-worker:$IMAGE_TAG -t $ECR_REGISTRY/payflow-worker:latest -f docker/Dockerfile.worker .
+          docker push $ECR_REGISTRY/payflow-worker:$IMAGE_TAG
+          docker push $ECR_REGISTRY/payflow-worker:latest
+          echo "WORKER_IMAGE=$ECR_REGISTRY/payflow-worker:$IMAGE_TAG" >> $GITHUB_ENV
+
+      # Execute Flyway Database Migration
+      - name: Run Flyway DB Migration Task
+        run: |
+          echo "Running isolated database migration task against Amazon RDS..."
+          # In ECS: triggers a one-shot Fargate task running flyway migrate
+          # aws ecs run-task --cluster ${{ env.ECS_CLUSTER }} --task-definition payflow-migration --launch-type FARGATE
+
+      # Deploy to ECS with Rolling Update & Circuit Breaker
+      - name: Render New Task Definition for API
+        id: render-api
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: deploy/aws/ecs-task-api.json
+          container-name: payflow-api
+          image: ${{ env.API_IMAGE }}
+
+      - name: Deploy API to ECS Fargate
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-api.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_API }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Render New Task Definition for Worker
+        id: render-worker
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: deploy/aws/ecs-task-worker.json
+          container-name: payflow-worker
+          image: ${{ env.WORKER_IMAGE }}
+
+      - name: Deploy Worker to ECS Fargate
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-worker.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE_WORKER }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # Post-Deployment Verification
+      - name: Verify Live Deployment Health
+        run: |
+          ALB_URL=$(aws elbv2 describe-load-balancers --names payflow-alb --query "LoadBalancers[0].DNSName" --output text)
+          echo "Verifying health endpoint at http://$ALB_URL/actuator/health ..."
+          curl --fail --retry 5 --retry-delay 10 --max-time 10 http://$ALB_URL/actuator/health

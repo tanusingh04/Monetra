@@ -1,0 +1,75 @@
+{
+  "family": "payflow-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/payflow-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/payflow-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "payflow-api",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/payflow-api:${IMAGE_TAG}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "hostPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "SPRING_PROFILES_ACTIVE", "value": "prod" },
+        { "name": "SPRING_DATASOURCE_URL", "value": "jdbc:postgresql://${RDS_ENDPOINT}:5432/payflow_db?sslmode=require" },
+        { "name": "SPRING_DATA_REDIS_HOST", "value": "${REDIS_ENDPOINT}" },
+        { "name": "SPRING_DATA_REDIS_PORT", "value": "6379" },
+        { "name": "SPRING_DATA_REDIS_SSL", "value": "true" },
+        { "name": "SPRING_KAFKA_BOOTSTRAP_SERVERS", "value": "${KAFKA_BOOTSTRAP_SERVERS}" },
+        { "name": "KAFKA_SECURITY_PROTOCOL", "value": "${KAFKA_SECURITY_PROTOCOL:-SASL_SSL}" },
+        { "name": "AWS_REGION", "value": "${AWS_REGION}" }
+      ],
+      "secrets": [
+        {
+          "name": "SPRING_DATASOURCE_USERNAME",
+          "valueFrom": "${SECRETS_MANAGER_ARN}:POSTGRES_USER::"
+        },
+        {
+          "name": "SPRING_DATASOURCE_PASSWORD",
+          "valueFrom": "${SECRETS_MANAGER_ARN}:POSTGRES_PASSWORD::"
+        },
+        {
+          "name": "SPRING_DATA_REDIS_PASSWORD",
+          "valueFrom": "${SECRETS_MANAGER_ARN}:REDIS_AUTH_TOKEN::"
+        },
+        {
+          "name": "APP_JWT_SECRET",
+          "valueFrom": "${SECRETS_MANAGER_ARN}:JWT_SECRET::"
+        },
+        {
+          "name": "KAFKA_SASL_JAAS_CONFIG",
+          "valueFrom": "${SECRETS_MANAGER_ARN}:KAFKA_JAAS_CONFIG::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/payflow-api",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "wget -q --spider http://localhost:8080/actuator/health || exit 1"
+        ],
+        "interval": 20,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 45
+      }
+    }
+  ]
+}

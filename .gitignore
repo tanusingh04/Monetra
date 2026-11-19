@@ -1,0 +1,78 @@
+# Build & Dependency Artifacts
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+!.mvn/wrapper/maven-wrapper.jar
+
+# Sensitive Credentials, Environment & Secret Files
+.env
+.env.local
+.env.*.local
+!.env.example
+*.secret
+*.credentials
+credentials.json
+secrets.yml
+secrets.yaml
+
+# Cryptographic Keys, Certificates & Keystores
+*.pem
+*.key
+*.pkcs12
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+
+# Terraform & Cloud Infrastructure Secrets
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Logs & Runtime Diagnostics
+*.log
+logs/
+*.hprof
+hs_err_pid*
+
+# IDE & Editor Configurations
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache
+/nbproject/private/
+/build/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# OS-Specific Metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

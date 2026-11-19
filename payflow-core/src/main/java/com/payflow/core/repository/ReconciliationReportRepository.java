@@ -1,0 +1,14 @@
+package com.payflow.core.repository;
+
+import com.payflow.core.domain.reconciliation.ReconciliationReport;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.UUID;
+
+@Repository
+public interface ReconciliationReportRepository extends JpaRepository<ReconciliationReport, UUID> {
+    Page<ReconciliationReport> findAllByOrderByExecutedAtDesc(Pageable pageable);
+}
